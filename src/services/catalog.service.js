@@ -89,13 +89,18 @@ exports.fetchRemoteAsset = (target, cb) => {
         return cb(new Error("Forbidden access rule triggered."));
     }
 
-    const performRequest = () => {
+    const performRequest = (requestOptions = {}) => {
         const client = parsedUrl.protocol === 'https:' ? https : http;
-        client.get(parsedUrl, (proxyRes) => {
+        const opts = { timeout: 3000, ...requestOptions };
+        const req = client.get(parsedUrl, opts, (proxyRes) => {
             let body = '';
             proxyRes.on('data', chunk => body += chunk);
             proxyRes.on('end', () => cb(null, body.substring(0, 50)));
-        }).on('error', err => cb(err));
+        });
+        req.on('timeout', () => {
+            req.destroy(new Error("Request timed out."));
+        });
+        req.on('error', err => cb(err));
     };
 
     if (net.isIP(hostname)) {
@@ -117,6 +122,18 @@ exports.fetchRemoteAsset = (target, cb) => {
                 return cb(new Error("Forbidden access rule triggered."));
             }
         }
-        performRequest();
+        const requestOptions = {
+            lookup: (host, opts, callback) => {
+                if (typeof opts === 'function') {
+                    callback = opts;
+                    opts = {};
+                }
+                if (opts && opts.all) {
+                    return callback(null, addresses);
+                }
+                return callback(null, addresses[0].address, addresses[0].family || net.isIP(addresses[0].address));
+            }
+        };
+        performRequest(requestOptions);
     });
 };
